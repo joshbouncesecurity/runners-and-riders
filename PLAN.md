@@ -140,7 +140,8 @@ A thin horizontal line (1 px, dark ochre) between the halves simulates the physi
 - [x] `app.js` — Hebrew character set, flip engine, stagger scheduler, resize handler
 - [x] Default Hebrew message pre-loaded (`שלום ירושלים` + 3 more lines)
 - [x] GitHub Pages deployment workflow (`.github/workflows/pages.yml`)
-- [ ] Tested in Chrome and Firefox
+- [x] Bug fixes shipped: RTL reversal + animation race (see *Post-launch fixes*)
+- [ ] Tested in Chrome and Firefox after PR #3 redeploy
 
 ---
 
@@ -169,10 +170,19 @@ The workflow can also be triggered manually via **Actions → Deploy to GitHub P
 ## Implementation Notes
 
 - **Character set** — Hebrew alphabet (incl. final forms ך ם ן ף ץ), space, punctuation (`. , ! ? ־ ׳ ״`), digits 0–9.
-- **Flap mechanism** — each cell has two static halves (top + bottom) showing the *current* character. A third element, `.flap`, sits over the top half showing the *next* character. On a flip, that flap rotates `0deg → -90deg` around its bottom edge; on animation end, both static halves are updated to the new character and the flap is reset.
-- **RTL handling** — rows use `flex-direction: row-reverse` so logical index 0 lands on the right. Short lines are padded on the logical-left so they align to the right edge visually.
+- **Flap mechanism** — each cell has two static halves (top + bottom) showing the *current* character. A third element, `.flap`, sits over the top half showing the *next* character. On the final landing flip, that flap rotates `0deg → -90deg` around its bottom edge; on animation end, both static halves are updated to the new character and the flap is reset.
+- **RTL handling** — the board has `dir="rtl"`, so the default flex row already lays children right-to-left. JS appends characters in logical order (`char[0]` first → visually rightmost) followed by trailing padding cells which fill the left side, right-aligning short lines.
 - **Stagger** — cells fire sequentially across rows (~35 ms apart) so the cascade reads from top-right to bottom-left, like a real platform board.
 - **Resize** — a `--board-scale` CSS variable on `:root` is updated by the slider and applied via `transform: scale()` on `.board`.
+
+---
+
+## Post-launch fixes
+
+After the initial deploy, two bugs were reported and fixed (PR #3):
+
+1. **Reversed Hebrew words** — the original CSS combined `dir="rtl"` on the board with `flex-direction: row-reverse` on each row, double-reversing the layout so words read LTR. Fix: drop `row-reverse` and reorder the JS appender (chars first, padding after).
+2. **Inconsistent wrong letters** — the random-cycle phase fired animated flips every ~75 ms while the CSS fold animation lasted 220 ms. Overlapping flips left stale `animationend` handlers that committed previous targets into the static halves. Fix: cycle phase swaps characters instantly; only the final landing flip is animated, so flips never overlap.
 
 ---
 

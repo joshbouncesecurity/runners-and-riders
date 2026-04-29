@@ -90,7 +90,8 @@ main {
 
 .board-row {
   display: flex;
-  flex-direction: row-reverse; /* RTL: first char on the right */
+  /* dir="rtl" on the board already lays children right-to-left;
+     a row-reverse here would double-reverse and read LTR. */
   gap: var(--cell-gap);
 }
 
