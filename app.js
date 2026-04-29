@@ -30,6 +30,9 @@
   function createCell() {
     const el = document.createElement('div');
     el.className = 'cell';
+    // Randomise each flap's slice of the stone slab so cells don't repeat.
+    el.style.setProperty('--bg-x', `${Math.floor(Math.random() * 100)}%`);
+    el.style.setProperty('--bg-y', `${Math.floor(Math.random() * 100)}%`);
 
     const top = document.createElement('div');
     top.className = 'half top';
