@@ -11,7 +11,6 @@
   const CYCLE_INTERVAL_MS = 70;
   const MIN_CYCLES = 4;
   const MAX_CYCLES = 12;
-  const FLAP_ANIM_MS = 220;
 
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -105,6 +104,9 @@
 
     const totalCycles = Math.floor(MIN_CYCLES + Math.random() * (MAX_CYCLES - MIN_CYCLES));
 
+    // Random-cycle phase uses INSTANT char swaps (no flip animation) so cycles
+    // can run faster than the CSS flap animation without overlapping flips
+    // committing stale targets. Only the final landing flip is animated.
     cell.timer = setTimeout(() => {
       let cyclesLeft = totalCycles;
       const tick = () => {
@@ -114,9 +116,9 @@
           return;
         }
         const randomChar = CHAR_SET[Math.floor(Math.random() * CHAR_SET.length)];
-        flipCellTo(cell, randomChar);
+        setCellChar(cell, randomChar);
         cyclesLeft -= 1;
-        cell.timer = setTimeout(tick, CYCLE_INTERVAL_MS + FLAP_ANIM_MS * 0.05);
+        cell.timer = setTimeout(tick, CYCLE_INTERVAL_MS);
       };
       tick();
     }, startDelay);
@@ -140,17 +142,22 @@
       const rowChars = Array.from(lines[r]);
       const rowCells = [];
 
-      // Build cells in *logical* (left-to-right) order; CSS flex-direction
-      // row-reverse handles RTL placement. Pad with spaces on the *left*
-      // (visually) so shorter lines align with the right edge in RTL.
-      const padLeft = cols - rowChars.length;
-      for (let c = 0; c < cols; c += 1) {
+      // The board has dir="rtl" so the first appended cell sits on the right.
+      // Append characters in logical order (char[0] first → visually rightmost),
+      // then trailing padding cells which fill the left side. This right-aligns
+      // short Hebrew lines and produces a right-to-left flip cascade.
+      const padCount = cols - rowChars.length;
+      for (let i = 0; i < rowChars.length; i += 1) {
         const cell = createCell();
-        // First `padLeft` logical cells become trailing (left) padding in RTL
-        const targetIdx = c - padLeft;
-        const initialChar = ' ';
-        setCellChar(cell, initialChar);
-        cell._target = targetIdx >= 0 ? rowChars[targetIdx] : ' ';
+        setCellChar(cell, ' ');
+        cell._target = rowChars[i];
+        rowEl.appendChild(cell.el);
+        rowCells.push(cell);
+      }
+      for (let i = 0; i < padCount; i += 1) {
+        const cell = createCell();
+        setCellChar(cell, ' ');
+        cell._target = ' ';
         rowEl.appendChild(cell.el);
         rowCells.push(cell);
       }
