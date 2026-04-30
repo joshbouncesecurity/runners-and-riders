@@ -3,15 +3,22 @@
 
   // Hebrew alphabet: 22 letters + 5 final forms + space + common punctuation/digits
   const HEBREW_LETTERS = 'אבגדהוזחטיכלמנסעפצקרשתךםןףץ';
-  const PUNCTUATION = ' .,!?־׳״';
+  const PUNCTUATION = ' .,!?־\'"';
   const DIGITS = '0123456789';
   const CHAR_SET = (HEBREW_LETTERS + PUNCTUATION + DIGITS).split('');
   const HEBREW_CHAR_SET = HEBREW_LETTERS.split('');
   const TIME_CHAR_SET = DIGITS.split('');
 
-  const STAGGER_MS = 300;
-  const MIN_CYCLES = 10;
-  const MAX_CYCLES = 22;
+  // Single knob for the load cascade pace. 10 = baseline (rows
+  // stagger 300 ms apart, each cell does 10–22 random flips before
+  // landing). < 10 → faster cascade (e.g. 5 halves both the stagger
+  // and the per-cell flip count); > 10 → slower (e.g. 20 doubles).
+  // The per-flap CSS animation (FLIP_DURATION_MS, 80 ms) stays
+  // constant either way so individual tile turns always feel snappy.
+  const FLICKER_SCALE = 7.5;
+  const STAGGER_MS = Math.round(300 * FLICKER_SCALE / 10);
+  const MIN_CYCLES = Math.max(1, Math.round(10 * FLICKER_SCALE / 10));
+  const MAX_CYCLES = Math.max(MIN_CYCLES, Math.round(22 * FLICKER_SCALE / 10));
   const MAX_COLS = 13;
 
   // ?instant in the URL skips all flip animation — cells show their
@@ -83,8 +90,51 @@
   // date go on the visual right, and any leftover cells become padding
   // in the middle. With dir="rtl" on the board the DOM-first child
   // sits at the RTL start = visual right.
-  const TIME_COLS = SHOW_SECONDS ? 8 : 5;
-  const DATE_COLS = 14;
+  // The time block is always 8 flap cells wide (HH:MM:SS-shaped),
+  // regardless of whether ?seconds is on. With seconds the cells show
+  // "HH:MM:SS"; without, the first 5 show "HH:MM" and the trailing 3
+  // are blank flaps (no second colon — that only appears when seconds
+  // are actually being shown). The trailing blanks are _static so
+  // they don't flicker through random digits during the cascade.
+  const TIME_COLS = 8;
+
+  function buildTimeChars() {
+    const chars = Array.from(TIME_FMT.format(getDisplayedTime()));
+    while (chars.length < TIME_COLS) chars.push(' ');
+    return chars;
+  }
+
+  // Both header rows are 18 cell-widths across so the top (date) and
+  // bottom (dow / brass / time) line up tile-for-tile. 18 is wide
+  // enough for the longest possible date string (e.g.
+  // "י\"א אדר א' תשפ\"ד" — 16 chars in an Adar I leap year, plus a
+  // pair of trailing blank flaps), so the date never has to drop its
+  // gershayim or get truncated.
+  const HEADER_COLS = 18;
+  // Cell-widths of pure brass plate (no flap) between the dow section
+  // and the time section. The two cells in this gap are *not* tiles —
+  // the brass background shows through directly.
+  const HEADER_NOTILE_COLS = 2;
+  // The dow section takes whatever width is left over once we've
+  // reserved space for the no-tile gap and the time block. With the
+  // default HH:MM time that's 11 cells (5 dow chars + 6 padding flaps
+  // for weekdays, 7 + 4 for Shabbat); with ?seconds HH:MM:SS it's 8.
+  const DOW_TOTAL_COLS = HEADER_COLS - HEADER_NOTILE_COLS - TIME_COLS;
+
+  // Day-of-week labels: יום א' through יום ו' (5 chars each) and the
+  // longer יום שבת on Saturday (7 chars). The dow section is wider
+  // than the longest label (DOW_TOTAL_COLS); short labels are
+  // padded with trailing blank flaps on the visual left.
+  const HEBREW_DOW = [
+    "יום א'",   // 0 = Sunday
+    "יום ב'",   // 1 = Monday
+    "יום ג'",   // 2 = Tuesday
+    "יום ד'",   // 3 = Wednesday
+    "יום ה'",   // 4 = Thursday
+    "יום ו'",   // 5 = Friday
+    "יום שבת",  // 6 = Saturday
+  ];
+  function dowText(jsDate) { return HEBREW_DOW[jsDate.getDay()]; }
 
   // Footer (sefira count) layout. Lines are padded to FOOTER_COLS so
   // cells stay uniformly sized across rows. 20 cells × 3 lines is the
@@ -115,14 +165,13 @@
     return new Date(timeOverride.anchorClock + (Date.now() - timeOverride.anchorReal));
   }
 
-  // Hebrew month-name formatter (long form). We use Intl for the month
-  // string but compute the day in gematria ourselves below — `nu-hebr`
-  // is unevenly supported across browsers/runtimes.
-  const HEBREW_MONTH_FMT = new Intl.DateTimeFormat('he-IL-u-ca-hebrew', {
-    timeZone: 'Asia/Jerusalem',
-    day: 'numeric',
-    month: 'long',
-  });
+  // We used to format the header's Hebrew month name via
+  //   new Intl.DateTimeFormat('he-IL-u-ca-hebrew', { month: 'long' })
+  // but the Academy-of-Hebrew spelling that comes out (סיוון, חשוון)
+  // didn't match the single-vav spellings the date-picker uses (סיון,
+  // חשון), and didn't match traditional siddurim. The header now reads
+  // its month name from `hebrewMonthName()` below, sharing one source
+  // of truth between the picker and the board.
 
   // Shared gematria letter tables
   const G_ONES = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
@@ -130,23 +179,25 @@
   // Hundreds: 100–400 are single letters; 500–900 use repeated ת (400).
   const G_HUNDREDS = ['', 'ק', 'ר', 'ש', 'ת', 'תק', 'תר', 'תש', 'תת', 'תתק'];
 
-  // Day-of-month gematria (1–30). 15 and 16 use the conventional ט״ו /
-  // ט״ז to avoid spelling fragments of the divine name.
+  // Day-of-month gematria (1–30). 15 and 16 use the conventional ט"ו /
+  // ט"ז to avoid spelling fragments of the divine name. Quote marks
+  // here are ASCII ' and " (geresh/gershayim look directional in some
+  // fonts; we standardise on straight quotes everywhere).
   const GEMATRIA_ONES = G_ONES;
   const GEMATRIA_TENS = ['', 'י', 'כ', 'ל'];
   function dayGematria(n, withMarks) {
-    if (n === 15) return withMarks ? 'ט״ו' : 'טו';
-    if (n === 16) return withMarks ? 'ט״ז' : 'טז';
+    if (n === 15) return withMarks ? 'ט"ו' : 'טו';
+    if (n === 16) return withMarks ? 'ט"ז' : 'טז';
     const tens = Math.floor(n / 10);
     const ones = n % 10;
-    if (n < 10) return withMarks ? GEMATRIA_ONES[ones] + '׳' : GEMATRIA_ONES[ones];
-    if (ones === 0) return withMarks ? GEMATRIA_TENS[tens] + '׳' : GEMATRIA_TENS[tens];
+    if (n < 10) return withMarks ? GEMATRIA_ONES[ones] + "'" : GEMATRIA_ONES[ones];
+    if (ones === 0) return withMarks ? GEMATRIA_TENS[tens] + "'" : GEMATRIA_TENS[tens];
     return withMarks
-      ? GEMATRIA_TENS[tens] + '״' + GEMATRIA_ONES[ones]
+      ? GEMATRIA_TENS[tens] + '"' + GEMATRIA_ONES[ones]
       : GEMATRIA_TENS[tens] + GEMATRIA_ONES[ones];
   }
 
-  // Hebrew year gematria (e.g. 5785 → "תשפ״ה"), dropping the thousands digit.
+  // Hebrew year gematria (e.g. 5785 → "תשפ"ה"), dropping the thousands digit.
   function yearGematria(year, withMarks) {
     const n = year % 1000;
     const h = Math.floor(n / 100);
@@ -158,22 +209,20 @@
     const str = G_HUNDREDS[h] + tensOnes;
     if (!withMarks) return str;
     if (str.length === 0) return str;
-    if (str.length === 1) return str + '׳';
-    return str.slice(0, -1) + '״' + str.slice(-1);
+    if (str.length === 1) return str + "'";
+    return str.slice(0, -1) + '"' + str.slice(-1);
   }
 
-  // Format the Hebrew date as `[day-gematria] [month] [year]`. Tries to fit
-  // DATE_COLS characters: first with marks, then marks stripped, then truncated.
+  // Format the Hebrew date as `[day-gematria] [month] [year]`. The
+  // longest possible string is 16 chars (an Adar I leap-year date),
+  // which fits HEADER_COLS exactly — no trimming or strip-marks
+  // fallback needed.
   function formatHebrewDate(date) {
-    const parts = HEBREW_MONTH_FMT.formatToParts(date);
-    const dayInt = parseInt(parts.find((p) => p.type === 'day').value, 10);
-    const month = parts.find((p) => p.type === 'month').value;
-    const hYear = new HDate(date).getFullYear();
-    let str = `${dayGematria(dayInt, true)} ${month} ${yearGematria(hYear, true)}`;
-    if (Array.from(str).length <= DATE_COLS) return str;
-    str = str.replace(/[׳״]/g, '');
-    if (Array.from(str).length <= DATE_COLS) return str;
-    return Array.from(str).slice(0, DATE_COLS).join('');
+    const hd = new HDate(date);
+    const dayInt = hd.getDate();
+    const hYear = hd.getFullYear();
+    const month = hebrewMonthName(hd.getMonth(), hebrewIsLeapYear(hYear));
+    return `${dayGematria(dayInt, true)} ${month} ${yearGematria(hYear, true)}`;
   }
 
   // The currently-displayed date. Header date reflects this; header time
@@ -184,50 +233,111 @@
   // by updateClock so only the cells whose char actually changed flip.
   let headerTimeCells = [];
   let headerDateCells = [];
+  let headerDowCells  = [];
 
-  // Builds the brass-plate header — two side-by-side panels (Hebrew
-  // date on the visual right, HH:MM time on the visual left) sized
-  // smaller than the body cells so they read as a subordinate row.
-  // Returns { headerEl, allCells } where allCells is in scheduling
-  // order so the cascade can stagger them like any body row.
+  // Helper: append a flap cell to `parent` and register it on `regs`.
+  // If `target` is a single char from `charSet` it animates as that;
+  // if it's a literal blank space the cycle phase still runs (but
+  // lands on ' '), giving the padding cells a brief flicker that
+  // matches the rest of the row instead of staying static.
+  function appendCell(parent, target, charSet, regs) {
+    const cell = createCell();
+    setCellChar(cell, ' ');
+    cell._target = target;
+    cell._charSet = charSet;
+    parent.appendChild(cell.el);
+    for (const reg of regs) reg.push(cell);
+    return cell;
+  }
+
+  // Builds the brass-plate header. .board-header is a flex column with
+  // two rows: the Hebrew date alone on top, and a bottom row carrying
+  // the day-of-week (visual right), spacer cells, and the wall-clock
+  // time (visual left). Both rows are padded to exactly HEADER_COLS
+  // flap cells so they line up tile-for-tile, and the bottom row
+  // always has HEADER_NOTILE_COLS pure-brass cells separating dow
+  // from time. Returns { headerEl, allCells } in cascade order.
   function buildHeaderRow(forDate) {
     const dateChars = Array.from(formatHebrewDate(forDate));
-    const timeChars = Array.from(TIME_FMT.format(getDisplayedTime()));
+    const timeChars = buildTimeChars();
+    const dowChars  = Array.from(dowText(forDate));
 
     const headerEl = document.createElement('div');
     headerEl.className = 'board-header';
     const allCells = [];
 
+    // ── Top row: Hebrew date — chars first (visual right), blank
+    // padding cells after to fill HEADER_COLS.
     const dateSection = document.createElement('div');
     dateSection.className = 'header-section header-date';
     headerDateCells = [];
     for (const ch of dateChars) {
-      const cell = createCell();
-      setCellChar(cell, ' ');
-      cell._target = ch;
-      cell._charSet = HEBREW_CHAR_SET;
-      dateSection.appendChild(cell.el);
-      headerDateCells.push(cell);
-      allCells.push(cell);
+      appendCell(dateSection, ch, HEBREW_CHAR_SET, [headerDateCells, allCells]);
+    }
+    for (let i = dateChars.length; i < HEADER_COLS; i += 1) {
+      appendCell(dateSection, ' ', HEBREW_CHAR_SET, [headerDateCells, allCells]);
     }
 
+    // ── Bottom row: dow section (right) + 2 brass cells (no flap)
+    //              + time section (left)
+    const bottomRow = document.createElement('div');
+    bottomRow.className = 'header-bottom-row';
+
+    // dowSection: DOW_TOTAL_COLS cells of flap. The label chars come
+    // first (visual right) and the rest of the section is padded with
+    // blank flaps. Section's flex-grow is its cell count so the three
+    // siblings (dow / notile / time) share the row width proportionally
+    // — every flap-cell ends up the same width as if the whole row
+    // were a flat 18-cell strip.
+    const dowSection = document.createElement('div');
+    dowSection.className = 'header-section header-dow';
+    dowSection.style.flex = `${DOW_TOTAL_COLS} 1 0`;
+    headerDowCells = [];
+    for (const ch of dowChars) {
+      appendCell(dowSection, ch, HEBREW_CHAR_SET, [headerDowCells, allCells]);
+    }
+    for (let i = dowChars.length; i < DOW_TOTAL_COLS; i += 1) {
+      appendCell(dowSection, ' ', HEBREW_CHAR_SET, [headerDowCells, allCells]);
+    }
+
+    // notileSection: HEADER_NOTILE_COLS cells of pure brass — no flap,
+    // no border, no background. Just transparent space so the brass
+    // plate of the .display-frame shows through. The empty divs share
+    // the .header-notile-cell flex/aspect-ratio so they take up the
+    // same width and height as a flap cell would.
+    const notileSection = document.createElement('div');
+    notileSection.className = 'header-section header-notile';
+    notileSection.style.flex = `${HEADER_NOTILE_COLS} 1 0`;
+    for (let i = 0; i < HEADER_NOTILE_COLS; i += 1) {
+      const empty = document.createElement('div');
+      empty.className = 'header-notile-cell';
+      notileSection.appendChild(empty);
+    }
+
+    // timeSection: dir="ltr" so HH:MM (or HH:MM:SS) renders forwards.
+    // buildTimeChars() always returns TIME_COLS = 8 chars. Colons and
+    // the trailing-blanks (when ?seconds is off) get _static so they
+    // skip the random-cycle phase on load and during ticks — only the
+    // digit positions actually flip.
     const timeSection = document.createElement('div');
     timeSection.className = 'header-section header-time';
     timeSection.setAttribute('dir', 'ltr');
+    timeSection.style.flex = `${TIME_COLS} 1 0`;
     headerTimeCells = [];
     for (const ch of timeChars) {
-      const cell = createCell();
-      setCellChar(cell, ' ');
-      cell._target = ch;
-      cell._charSet = TIME_CHAR_SET;
-      if (ch === ':') cell._static = true;
-      timeSection.appendChild(cell.el);
-      headerTimeCells.push(cell);
-      allCells.push(cell);
+      const cell = appendCell(timeSection, ch, TIME_CHAR_SET, [headerTimeCells, allCells]);
+      if (ch === ':' || ch === ' ') cell._static = true;
     }
 
+    // DOM order: dow → notile → time. With dir="rtl" inherited on
+    // bottomRow, the dow section sits on the visual right and time
+    // on the visual left, separated by the two brass cells.
+    bottomRow.appendChild(dowSection);
+    bottomRow.appendChild(notileSection);
+    bottomRow.appendChild(timeSection);
+
     headerEl.appendChild(dateSection);
-    headerEl.appendChild(timeSection);
+    headerEl.appendChild(bottomRow);
 
     return { headerEl, allCells };
   }
@@ -283,8 +393,15 @@
 
   function updateClock() {
     if (!headerTimeCells.length && !headerDateCells.length) return;
-    const timeChars = Array.from(TIME_FMT.format(getDisplayedTime()));
+    const timeChars = buildTimeChars();
     const dateChars = Array.from(formatHebrewDate(selectedDate));
+    const dowChars  = Array.from(dowText(selectedDate));
+    // Pad date / dow to their respective full widths so cells past
+    // the formatted content settle to a literal ' '. timeChars is
+    // already 8 chars from buildTimeChars().
+    while (dateChars.length < HEADER_COLS)     dateChars.push(' ');
+    while (dowChars.length  < DOW_TOTAL_COLS)  dowChars.push(' ');
+
     const updateOne = (cell, ch) => {
       if (!cell || !ch || cell.current === ch) return;
       // Cancel any in-progress cycle on this cell so the minute tick
@@ -295,6 +412,7 @@
     };
     timeChars.forEach((ch, i) => updateOne(headerTimeCells[i], ch));
     dateChars.forEach((ch, i) => updateOne(headerDateCells[i], ch));
+    dowChars.forEach( (ch, i) => updateOne(headerDowCells[i],  ch));
   }
 
   /**
@@ -497,7 +615,7 @@
   function hebrewMonthName(month, isLeap) {
     const NAMES = ['', 'ניסן', 'אייר', 'סיון', 'תמוז', 'אב', 'אלול',
                    'תשרי', 'חשון', 'כסלו', 'טבת', 'שבט',
-                   isLeap ? 'אדר א׳' : 'אדר', 'אדר ב׳'];
+                   isLeap ? "אדר א'" : 'אדר', "אדר ב'"];
     return NAMES[month] || '';
   }
 
@@ -913,8 +1031,17 @@
   function clearTimeOverride() {
     timeOverride = null;
     if (timeInput) timeInput.value = fmtTimeForInput(new Date());
+    // "Return to now" should also restore the *date* — re-enter live
+    // mode so the board snaps back to today's effective Hebrew day
+    // (and resumes auto-advancing at tzeit).
+    liveDateMode = true;
+    const eff = getEffectiveTodayJs(getDisplayedTime());
+    if (eff.getTime() !== selectedDate.getTime()) {
+      syncGregSelectors(eff);
+      syncGregToHebrew(eff);
+      renderForDate(eff);
+    }
     updateClock();
-    maybeAdvanceLiveDate();
   }
 
   if (timeInput) {
@@ -931,6 +1058,22 @@
     });
   }
   if (timeNowBtn) timeNowBtn.addEventListener('click', clearTimeOverride);
+
+  // ─── Date stepper ───────────────────────────────────────────────
+  // ◀ / ▶ buttons that nudge the displayed date by one civil day.
+  // Uses setDateFromGreg, so they also flip liveDateMode off — the
+  // user is explicitly browsing a chosen date, no longer tracking
+  // today. "חזרה לעכשיו" puts them back into live mode.
+  function stepDate(deltaDays) {
+    const next = new Date(selectedDate);
+    next.setDate(next.getDate() + deltaDays);
+    syncGregSelectors(next);
+    setDateFromGreg(next);
+  }
+  const datePrevBtn = document.getElementById('date-prev');
+  const dateNextBtn = document.getElementById('date-next');
+  if (datePrevBtn) datePrevBtn.addEventListener('click', () => stepDate(-1));
+  if (dateNextBtn) dateNextBtn.addEventListener('click', () => stepDate(+1));
 
   // Build SHA — replaced by the deploy workflow
   const buildShaEl = document.getElementById('build-sha');

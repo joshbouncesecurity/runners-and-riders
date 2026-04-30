@@ -34,14 +34,77 @@
     'Shabbat Zachor':    'פרשת זכור',
   };
 
+  // Hebrew labels we override on Hebcal's stock rendering — either to
+  // fit the 13-cell row width or to give a more recognisable / proper
+  // name. Keyed by the English description (e.getDesc()). The 13-char
+  // ceiling is enforced by the body-row test in tests/run.js, so this
+  // table is what catches future Hebcal additions before they truncate.
+  const HOLIDAY_OVERRIDES = {
+    // Day 7 of Sukkot Chol HaMoed — its own well-known name.
+    'Sukkot VII (Hoshana Raba)': 'הושענא רבה',
+    // Adar I in a leap year — minor commemoration. The full
+    // "שושן פורים קטן" is 14 chars (one over the row width); we
+    // shorten שושן → שו' rather than abbreviating פורים, which the
+    // ש"פ contraction would have hidden.
+    'Shushan Purim Katan':       "שו' פורים קטן",
+    // Tisha B'Av deferred to Sunday when 9 Av falls on Shabbat —
+    // display the same "תשעה באב" as the regular date so the row
+    // text doesn't change shape based on which year you're in.
+    'Tish\'a B\'Av (observed)':  'תשעה באב',
+  };
+
+  // Israel observances we *want* on the board. Hebcal's MODERN_HOLIDAY
+  // flag covers ~13 civic days; the user has explicitly opted in to
+  // these five (the four national days + Sigd) and out of the rest
+  // (Family Day, Herzl Day, Jabotinsky Day, Hebrew Language Day,
+  // Ben-Gurion Day, Rabin Memorial Day, Yom HaAliyah, Yom HaAliyah
+  // School Observance, Rosh Hashana LaBehemot). To bring one back,
+  // add its English desc here — overrides for previously-truncated
+  // labels are kept in HOLIDAY_OVERRIDES_DROPPED below for reference.
+  const KEPT_MODERN_HOLIDAYS = new Set([
+    'Yom HaShoah',
+    'Yom HaZikaron',
+    "Yom HaAtzma'ut",
+    'Yom Yerushalayim',
+    'Sigd',
+  ]);
+
+  // Hebcal's MINOR_HOLIDAY flag covers a wider set (Lag BaOmer, Tu
+  // BiShvat, Tu B'Av, Pesach Sheni, Leil Selichot, Chag HaBanot, Erev
+  // events, …). Same opt-in pattern as KEPT_MODERN_HOLIDAYS — only the
+  // descs in here surface as a body row.
+  const KEPT_MINOR_HOLIDAYS = new Set([
+    'Lag BaOmer',
+    'Tu BiShvat',
+  ]);
+
+  // Hebcal renders Chanukah days as "חנוכה: X' נרות" — the colon and
+  // נרות push days 2–8 to 14 chars, over the row width. We compress to
+  // "חנוכה X'" (≤8 chars). The English desc is "Chanukah: N Candle(s)"
+  // or "Chanukah: 8th Day"; either way the leading number is the day.
+  const CHANUKAH_DAY = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח'];
+  function chanukahOverride(en) {
+    const m = en.match(/^Chanukah:\s+(\d+)/);
+    if (!m) return null;
+    const day = parseInt(m[1], 10);
+    if (day < 1 || day > 8) return null;
+    return "חנוכה " + CHANUKAH_DAY[day] + "'";
+  }
+
   // Strip Hebrew niqqud + cantillation (U+0591–U+05C7) but preserve the
   // maqaf (U+05BE) — it's inside the same Unicode range yet is a real
   // punctuation character used between words like אחרי מות־קדשים.
+  // Also normalises geresh (U+05F3) → ASCII apostrophe ' and gershayim
+  // (U+05F4) → ASCII " so abbreviations on the board read with straight
+  // quote marks, never directional/typographic ones.
   function stripNiqqud(str) {
-    return str.replace(/[֑-ֽֿ-ׇ]/g, '');
+    return str
+      .replace(/[֑-ֽֿ-ׇ]/g, '')
+      .replace(/׳/g, "'")
+      .replace(/״/g, '"');
   }
 
-  // Israel: say "תן טל ומטר" from 7 Marcheshvan through 14 Nisan.
+  // Israel: say "ותן טל ומטר" from 7 Marcheshvan through 14 Nisan.
   function isTalUMatar(hMonth, hDay) {
     if (hMonth === 8 && hDay >= 7) return true;
     if (hMonth >= 9 && hMonth <= 13) return true;
@@ -71,20 +134,37 @@
       }) || [];
     } catch {}
 
+    const getDesc  = e => { try { return e.getDesc() || ''; } catch { return ''; } };
     const getFlags = e => { try { return e.getFlags(); } catch { return 0; } };
     const renderEn = e => { try { return e.render('en') || ''; } catch { return ''; } };
     const renderHe = e => stripNiqqud((() => { try { return e.render('he') || ''; } catch { return ''; } })());
 
-    // Chol HaMoed — fixed Hebrew string + יעלה ויבוא
+    // Returns an override string from HOLIDAY_OVERRIDES / Chanukah, or
+    // null if Hebcal's own Hebrew rendering should be used. Centralised
+    // so every branch (cholHamoed / yomTov / specialDay) hits it the
+    // same way.
+    const overrideLabel = e => {
+      const desc = getDesc(e);
+      if (desc.startsWith('Chanukah')) {
+        const c = chanukahOverride(desc);
+        if (c) return c;
+      }
+      return HOLIDAY_OVERRIDES[desc] || null;
+    };
+
+    // Chol HaMoed — fixed Hebrew string + יעלה ויבוא. Hoshana Rabbah is
+    // a Sukkot Chol HaMoed day in Hebcal's eyes, but its proper name
+    // wins via HOLIDAY_OVERRIDES before the generic fallback.
     const cholHamoed = events.find(e => !!(getFlags(e) & HEBCAL_FLAGS.CHOL_HAMOED));
     if (cholHamoed) {
       const en = renderEn(cholHamoed);
-      const name = /pesach|passover/i.test(en) ? 'חול המועד פסח'
-                 : /sukkot/i.test(en)          ? 'ח המועד סוכות'
-                 : renderHe(cholHamoed);
+      const name = overrideLabel(cholHamoed)
+                 || (/pesach|passover/i.test(en) ? 'חול המועד פסח'
+                  :  /sukkot/i.test(en)          ? 'ח המועד סוכות'
+                  :  renderHe(cholHamoed));
       return {
         holidayName: name, yaalehVeYavo: true, specialDay: '', alHaNisim: false,
-        roshChodesh: false, specialShabbat: '', shabbatMevarchim: false,
+        fastDay: '', roshChodesh: false, specialShabbat: '', shabbatMevarchim: false,
       };
     }
 
@@ -92,29 +172,39 @@
     const yomTov = events.find(e => !!(getFlags(e) & HEBCAL_FLAGS.CHAG));
     if (yomTov) {
       let name = renderHe(yomTov);
-      // RH day 1 comes back as "ראש השנה 5787" — strip the year and use א׳
+      // RH day 1 comes back as "ראש השנה 5787" — strip the year and use א'
       if (/Rosh Hashana/i.test(renderEn(yomTov))) {
-        if (hd.getMonth() === 7 && hd.getDate() === 1) name = 'ראש השנה א׳';
+        if (hd.getMonth() === 7 && hd.getDate() === 1) name = "ראש השנה א'";
       }
       return {
         holidayName: name, yaalehVeYavo: true, specialDay: '', alHaNisim: false,
-        roshChodesh: false, specialShabbat: '', shabbatMevarchim: false,
+        fastDay: '', roshChodesh: false, specialShabbat: '', shabbatMevarchim: false,
       };
     }
 
     // Rosh Chodesh — no row-1 override, but יעלה ויבוא is said
     const roshChodesh = !!events.find(e => !!(getFlags(e) & HEBCAL_FLAGS.ROSH_CHODESH));
 
-    // Chanukah / Purim — prefer non-candle events for cleaner Hebrew text
+    // Chanukah / Purim — prefer non-candle events for cleaner Hebrew
+    // text. Erev Purim is excluded (EREV flag) so only the actual
+    // festive day fires; otherwise "ערב פורים" would surface and
+    // (incorrectly) pull in על הניסים.
+    const purimChanukahMatch = e => {
+      if (getFlags(e) & HEBCAL_FLAGS.EREV) return false;
+      return /chanukah/i.test(renderEn(e)) || /\bpurim\b/i.test(renderEn(e));
+    };
     const chanukahOrPurim =
-      events.find(e => !(getFlags(e) & HEBCAL_FLAGS.CHANUKAH_CANDLES) &&
-                       (/chanukah/i.test(renderEn(e)) || /\bpurim\b/i.test(renderEn(e)))) ||
-      events.find(e => /chanukah/i.test(renderEn(e)) || /\bpurim\b/i.test(renderEn(e)));
+      events.find(e => !(getFlags(e) & HEBCAL_FLAGS.CHANUKAH_CANDLES) && purimChanukahMatch(e)) ||
+      events.find(purimChanukahMatch);
 
-    const modernEv = events.find(e => !!(getFlags(e) & HEBCAL_FLAGS.MODERN_HOLIDAY));
+    const modernEv = events.find(e =>
+      (getFlags(e) & HEBCAL_FLAGS.MODERN_HOLIDAY) && KEPT_MODERN_HOLIDAYS.has(getDesc(e)));
 
-    const specialEv = chanukahOrPurim || modernEv;
-    const specialDay = specialEv ? renderHe(specialEv) : '';
+    const minorEv = events.find(e =>
+      (getFlags(e) & HEBCAL_FLAGS.MINOR_HOLIDAY) && KEPT_MINOR_HOLIDAYS.has(getDesc(e)));
+
+    const specialEv = chanukahOrPurim || modernEv || minorEv;
+    const specialDay = specialEv ? (overrideLabel(specialEv) || renderHe(specialEv)) : '';
     const alHaNisim = !!chanukahOrPurim;
 
     // Parshiyot + Shabbat HaGadol — keyed by Hebcal's English desc so we
@@ -127,11 +217,24 @@
 
     const shabbatMevarchim = events.some(e => !!(getFlags(e) & FLAG_SHABBAT_MEVARCHIM));
 
+    // Fasts — minor (Tzom Gedaliah, Asara B'Tevet, Ta'anit Esther, 17
+    // Tammuz, Ta'anit Bechorot) and major (Tisha B'Av). Yom Kippur is
+    // also a major fast but already returned early via the CHAG branch
+    // above. We exclude EREV events because Hebcal flags Erev Tisha
+    // B'Av with MAJOR_FAST too — it's the eve, not the fast itself.
+    const FAST_FLAGS = HEBCAL_FLAGS.MAJOR_FAST | HEBCAL_FLAGS.MINOR_FAST;
+    const fastEv = events.find(e => {
+      const f = getFlags(e);
+      return (f & FAST_FLAGS) && !(f & HEBCAL_FLAGS.EREV);
+    });
+    const fastDay = fastEv ? (overrideLabel(fastEv) || renderHe(fastEv)) : '';
+
     return {
       holidayName: '',
       yaalehVeYavo: roshChodesh,
       specialDay,
       alHaNisim,
+      fastDay,
       roshChodesh,
       specialShabbat,
       shabbatMevarchim,
@@ -282,21 +385,26 @@
     const hDay = hd.getDate();
     const info = getDayInfo(jsDate);
     const {
-      holidayName, yaalehVeYavo, specialDay, alHaNisim,
+      holidayName, yaalehVeYavo, specialDay, alHaNisim, fastDay,
       roshChodesh, specialShabbat, shabbatMevarchim,
     } = info;
     const row1 = holidayName || getParshaForDate(jsDate);
-    const talRow = isTalUMatar(hMonth, hDay) ? 'תן טל ומטר' : 'תן ברכה';
+    const talRow = isTalUMatar(hMonth, hDay) ? 'ותן טל ומטר' : 'ותן ברכה';
     const geshem = isMoridHaGeshem(hMonth, hDay) ? 'מוריד הגשם' : 'מוריד הטל';
 
-    const rows = [row1];
+    // All "special day" markers stack ABOVE the parsha (or holidayName)
+    // so the visual hierarchy reads "what's notable about today" first
+    // and the weekly Torah reading sits underneath it.
+    const rows = [];
     if (specialShabbat)    rows.push(specialShabbat);
     if (shabbatMevarchim)  rows.push('שבת מברכים');
     if (specialDay)        rows.push(specialDay);
+    if (fastDay)           rows.push(fastDay);
     if (roshChodesh)       rows.push('ראש חודש');
+    rows.push(row1);
     if (yaalehVeYavo)      rows.push('יעלה ויבוא');
+    if (alHaNisim)         rows.push('על הניסים');
     rows.push(talRow, geshem);
-    if (alHaNisim)         rows.push('אל הניסים');
     while (rows.length < 7) rows.push('');
     return rows.join('\n');
   }
