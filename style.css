@@ -145,7 +145,7 @@ main {
   aspect-ratio: 3 / 4;
   /* Establish a containment context so descendants can size with cqw/cqi. */
   container-type: inline-size;
-  perspective: 120px;
+  perspective: 180px;
   background: var(--walnut-dark);
   border-radius: 4px;
   box-shadow:
@@ -257,13 +257,14 @@ main {
 }
 
 .cell.flipping .flap {
-  animation: fold-down 350ms ease-in forwards;
+  animation: fold-down 380ms ease-in forwards;
 }
 
 @keyframes fold-down {
-  0%   { transform: rotateX(0deg);   opacity: 1; }
-  70%  { transform: rotateX(-70deg); opacity: 0.6; }
-  100% { transform: rotateX(-90deg); opacity: 0; }
+  /* Flap (showing old char) pivots from its bottom edge (the cell's
+     centre line) toward the viewer, revealing the new char behind it. */
+  0%   { transform: rotateX(0deg); }
+  100% { transform: rotateX(-90deg); }
 }
 
 /* ─── Controls ───────────────────────────────────────────────── */

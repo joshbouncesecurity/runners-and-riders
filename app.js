@@ -201,19 +201,17 @@
       setCellChar(cell, target);
       return;
     }
-    // Show target on the flap (which sits over the top half), then fold it down.
-    cell.flapSpan.textContent = target;
-    cell.flap.style.display = 'flex';
-    // Force reflow so animation restarts cleanly
+    // Flap keeps showing the OLD char (already set via setCellChar).
+    // Pre-load the new char on the top half behind the flap — it will be
+    // revealed as the flap folds forward toward the viewer and disappears.
+    cell.topSpan.textContent = target;
     void cell.el.offsetWidth;
     cell.el.classList.add('flipping');
 
     const onEnd = () => {
       cell.el.classList.remove('flipping');
       cell.flap.removeEventListener('animationend', onEnd);
-      // Commit the new char to both halves; reset flap for next flip
       setCellChar(cell, target);
-      cell.flap.style.display = '';
     };
     cell.flap.addEventListener('animationend', onEnd);
   }
