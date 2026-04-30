@@ -77,8 +77,24 @@
     if (yomTov) return { holidayName: renderHe(yomTov), yaalehVeYavo: true };
 
     // Rosh Chodesh — no row-1 override, but יעלה ויבוא is said
-    const roshChodesh = events.find(e => !!(getFlags(e) & HEBCAL_FLAGS.ROSH_CHODESH));
-    return { holidayName: '', yaalehVeYavo: !!roshChodesh };
+    const roshChodesh = !!events.find(e => !!(getFlags(e) & HEBCAL_FLAGS.ROSH_CHODESH));
+
+    // Chanukah / Purim — prefer non-candle events for cleaner Hebrew text
+    const chanukahOrPurim =
+      events.find(e => !(getFlags(e) & HEBCAL_FLAGS.CHANUKAH_CANDLES) &&
+                       (/chanukah/i.test(renderEn(e)) || /\bpurim\b/i.test(renderEn(e)))) ||
+      events.find(e => /chanukah/i.test(renderEn(e)) || /\bpurim\b/i.test(renderEn(e)));
+
+    // Israeli modern holidays (Yom HaShoah, Yom HaZikaron, Yom HaAtzmaut, etc.)
+    const modernEv = events.find(e => !!(getFlags(e) & HEBCAL_FLAGS.MODERN_HOLIDAY));
+
+    // specialDay shows below the parsha without displacing it
+    const specialEv = chanukahOrPurim || modernEv;
+    const specialDay = specialEv ? renderHe(specialEv) : '';
+    // אל הניסים on Chanukah and Purim only — not on Israeli national days
+    const alHaNisim = !!chanukahOrPurim;
+
+    return { holidayName: '', yaalehVeYavo: roshChodesh, specialDay, alHaNisim };
   }
 
   // Return the next parsha name (Hebrew, no niqqud, no prefix) on or after
@@ -106,19 +122,29 @@
   }
 
   // Build the display text for a given JS date. Always 7 rows (padded
-  // with blanks) so the grid stays full. יעלה ויבוא, when present,
-  // occupies row 2 and shifts Tal/Geshem down by one.
+  // with blanks) so the grid stays full.
+  //
+  // Row order (rows present only when relevant):
+  //   1. Holiday (Yom Tov / Chol HaMoed) or Parsha
+  //   2. Special day that doesn't displace parsha (Chanukah, Purim, Israeli day)
+  //   2/3. יעלה ויבוא (Yom Tov, Chol HaMoed, Rosh Chodesh)
+  //   3/4. תן טל ומטר / תן ברכה
+  //   4/5. מוריד הגשם / מוריד הטל
+  //   5/6. אל הניסים (Chanukah, Purim)
   function getDisplayText(jsDate) {
     const hd = new HDate(jsDate);
     const hMonth = hd.getMonth();
     const hDay = hd.getDate();
-    const { holidayName, yaalehVeYavo } = getDayInfo(jsDate);
+    const { holidayName, yaalehVeYavo, specialDay, alHaNisim } = getDayInfo(jsDate);
     const row1 = holidayName || getParshaForDate(jsDate);
     const talRow = isTalUMatar(hMonth, hDay) ? 'תן טל ומטר' : 'תן ברכה';
     const geshem = isMoridHaGeshem(hMonth, hDay) ? 'מוריד הגשם' : 'מוריד הטל';
-    const rows = yaalehVeYavo
-      ? [row1, 'יעלה ויבוא', talRow, geshem, '', '', '']
-      : [row1, talRow, geshem, '', '', '', ''];
+    const rows = [row1];
+    if (specialDay) rows.push(specialDay);
+    if (yaalehVeYavo) rows.push('יעלה ויבוא');
+    rows.push(talRow, geshem);
+    if (alHaNisim) rows.push('אל הניסים');
+    while (rows.length < 7) rows.push('');
     return rows.join('\n');
   }
 
@@ -130,7 +156,7 @@
   // in the middle. With dir="rtl" on the board the DOM-first child
   // sits at the RTL start = visual right.
   const TIME_COLS = 5;
-  const DATE_COLS = 8;
+  const DATE_COLS = 14;
 
   // Time formatter: 24-hour Asia/Jerusalem, en-GB gives "HH:MM" with
   // leading zeros regardless of the user's locale.
@@ -150,9 +176,15 @@
     month: 'long',
   });
 
+  // Shared gematria letter tables
+  const G_ONES = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
+  const G_TENS = ['', 'י', 'כ', 'ל', 'מ', 'נ', 'ס', 'ע', 'פ', 'צ'];
+  // Hundreds: 100–400 are single letters; 500–900 use repeated ת (400).
+  const G_HUNDREDS = ['', 'ק', 'ר', 'ש', 'ת', 'תק', 'תר', 'תש', 'תת', 'תתק'];
+
   // Day-of-month gematria (1–30). 15 and 16 use the conventional ט״ו /
   // ט״ז to avoid spelling fragments of the divine name.
-  const GEMATRIA_ONES = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
+  const GEMATRIA_ONES = G_ONES;
   const GEMATRIA_TENS = ['', 'י', 'כ', 'ל'];
   function dayGematria(n, withMarks) {
     if (n === 15) return withMarks ? 'ט״ו' : 'טו';
@@ -166,18 +198,31 @@
       : GEMATRIA_TENS[tens] + GEMATRIA_ONES[ones];
   }
 
-  // Format the Hebrew date as `[day-gematria] [month]`. Drops the year
-  // (the body of the message is the focus, and Hebrew years rarely
-  // change) and tries hardest to fit DATE_COLS cells: full marks, then
-  // marks stripped, then truncated.
+  // Hebrew year gematria (e.g. 5785 → "תשפ״ה"), dropping the thousands digit.
+  function yearGematria(year, withMarks) {
+    const n = year % 1000;
+    const h = Math.floor(n / 100);
+    const rem = n % 100;
+    let tensOnes;
+    if (rem === 15) tensOnes = 'טו';
+    else if (rem === 16) tensOnes = 'טז';
+    else tensOnes = G_TENS[Math.floor(rem / 10)] + G_ONES[rem % 10];
+    const str = G_HUNDREDS[h] + tensOnes;
+    if (!withMarks) return str;
+    if (str.length === 0) return str;
+    if (str.length === 1) return str + '׳';
+    return str.slice(0, -1) + '״' + str.slice(-1);
+  }
+
+  // Format the Hebrew date as `[day-gematria] [month] [year]`. Tries to fit
+  // DATE_COLS characters: first with marks, then marks stripped, then truncated.
   function formatHebrewDate(date) {
     const parts = HEBREW_MONTH_FMT.formatToParts(date);
     const dayInt = parseInt(parts.find((p) => p.type === 'day').value, 10);
     const month = parts.find((p) => p.type === 'month').value;
-    let str = `${dayGematria(dayInt, true)} ${month}`;
+    const hYear = new HDate(date).getFullYear();
+    let str = `${dayGematria(dayInt, true)} ${month} ${yearGematria(hYear, true)}`;
     if (Array.from(str).length <= DATE_COLS) return str;
-    // Strip geresh ׳ and gershayim ״ and try again — typically gets us
-    // under for leap-year Adar ("כ״ט אדר א׳" → "כט אדר א").
     str = str.replace(/[׳״]/g, '');
     if (Array.from(str).length <= DATE_COLS) return str;
     return Array.from(str).slice(0, DATE_COLS).join('');
@@ -439,20 +484,132 @@
     }
   }
 
-  // ─── Date picker ───────────────────────────────────────────────
-  const dateInput = document.getElementById('date-pick');
+  // ─── Hebrew date selector helpers ──────────────────────────────
 
-  // Default to today in Jerusalem time (en-CA locale gives YYYY-MM-DD)
-  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
-  dateInput.value = todayStr;
+  function hebrewIsLeapYear(year) {
+    return typeof HDate.isLeapYear === 'function'
+      ? HDate.isLeapYear(year)
+      : (7 * year + 1) % 19 < 7;
+  }
+
+  function hebrewDaysInMonth(month, year) {
+    return typeof HDate.daysInMonth === 'function'
+      ? HDate.daysInMonth(month, year)
+      : [0, 30, 29, 30, 29, 30, 29, 30, 29, 29, 29, 30, 29, 29][month] || 29;
+  }
+
+  function hebrewMonthName(month, isLeap) {
+    const NAMES = ['', 'ניסן', 'אייר', 'סיון', 'תמוז', 'אב', 'אלול',
+                   'תשרי', 'חשון', 'כסלו', 'טבת', 'שבט',
+                   isLeap ? 'אדר א׳' : 'אדר', 'אדר ב׳'];
+    return NAMES[month] || '';
+  }
+
+  function populateHebrewYear(sel, targetYear) {
+    const current = parseInt(sel.value, 10) || targetYear;
+    const start = targetYear - 5;
+    const end   = targetYear + 10;
+    sel.innerHTML = '';
+    for (let y = start; y <= end; y++) {
+      const opt = document.createElement('option');
+      opt.value = y;
+      opt.textContent = `${yearGematria(y, true)} (${y})`;
+      if (y === current) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    if (!sel.value) sel.value = targetYear;
+  }
+
+  function populateHebrewMonths(sel, year, targetMonth) {
+    const prev = parseInt(sel.value, 10) || targetMonth;
+    const isLeap = hebrewIsLeapYear(year);
+    const numMonths = isLeap ? 13 : 12;
+    sel.innerHTML = '';
+    for (let m = 1; m <= numMonths; m++) {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = hebrewMonthName(m, isLeap);
+      if (m === prev) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    if (!sel.value || parseInt(sel.value, 10) > numMonths) sel.value = Math.min(prev, numMonths);
+  }
+
+  function populateHebrewDays(sel, month, year, targetDay) {
+    const prev = parseInt(sel.value, 10) || targetDay;
+    const maxDay = hebrewDaysInMonth(month, year);
+    sel.innerHTML = '';
+    for (let d = 1; d <= maxDay; d++) {
+      const opt = document.createElement('option');
+      opt.value = d;
+      opt.textContent = d;
+      if (d === Math.min(prev, maxDay)) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+
+  function syncGregToHebrew(jsDate) {
+    const hd = new HDate(jsDate);
+    const hYear  = hd.getFullYear();
+    const hMonth = hd.getMonth();
+    const hDay   = hd.getDate();
+    populateHebrewYear(hebYearSel, hYear);
+    hebYearSel.value = hYear;
+    populateHebrewMonths(hebMonthSel, hYear, hMonth);
+    hebMonthSel.value = hMonth;
+    populateHebrewDays(hebDaySel, hMonth, hYear, hDay);
+    hebDaySel.value = hDay;
+  }
+
+  function hebrewSelectorsToGreg() {
+    const year  = parseInt(hebYearSel.value, 10);
+    const month = parseInt(hebMonthSel.value, 10);
+    const day   = parseInt(hebDaySel.value, 10);
+    if (!year || !month || !day) return null;
+    try { return new HDate(day, month, year).greg(); } catch { return null; }
+  }
+
+  // ─── Date pickers ───────────────────────────────────────────────
+  const dateInput  = document.getElementById('date-pick');
+  const hebYearSel  = document.getElementById('heb-year');
+  const hebMonthSel = document.getElementById('heb-month');
+  const hebDaySel   = document.getElementById('heb-day');
+
+  function renderForDate(jsDate) {
+    renderMessage(getDisplayText(jsDate));
+  }
 
   dateInput.addEventListener('change', () => {
     const [y, m, d] = dateInput.value.split('-').map(Number);
-    renderMessage(getDisplayText(new Date(y, m - 1, d)));
+    const jsDate = new Date(y, m - 1, d);
+    syncGregToHebrew(jsDate);
+    renderForDate(jsDate);
   });
 
-  // Build SHA — replaced by the deploy workflow; left as the literal token
-  // when running locally so we display "dev" instead.
+  hebYearSel.addEventListener('change', () => {
+    const year  = parseInt(hebYearSel.value, 10);
+    const month = parseInt(hebMonthSel.value, 10);
+    populateHebrewMonths(hebMonthSel, year, month);
+    const monthNow = parseInt(hebMonthSel.value, 10);
+    populateHebrewDays(hebDaySel, monthNow, year, parseInt(hebDaySel.value, 10));
+    const jsDate = hebrewSelectorsToGreg();
+    if (jsDate) { dateInput.value = jsDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }); renderForDate(jsDate); }
+  });
+
+  hebMonthSel.addEventListener('change', () => {
+    const year  = parseInt(hebYearSel.value, 10);
+    const month = parseInt(hebMonthSel.value, 10);
+    populateHebrewDays(hebDaySel, month, year, parseInt(hebDaySel.value, 10));
+    const jsDate = hebrewSelectorsToGreg();
+    if (jsDate) { dateInput.value = jsDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }); renderForDate(jsDate); }
+  });
+
+  hebDaySel.addEventListener('change', () => {
+    const jsDate = hebrewSelectorsToGreg();
+    if (jsDate) { dateInput.value = jsDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }); renderForDate(jsDate); }
+  });
+
+  // Build SHA — replaced by the deploy workflow
   const buildShaEl = document.getElementById('build-sha');
   if (buildShaEl) {
     const meta = document.querySelector('meta[name="build-sha"]');
@@ -467,9 +624,13 @@
     }
   }
 
-  // Initial render for today
+  // Default to today in Jerusalem time and initialise both pickers
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+  dateInput.value = todayStr;
   const [ty, tm, td] = todayStr.split('-').map(Number);
-  renderMessage(getDisplayText(new Date(ty, tm - 1, td)));
+  const todayJs = new Date(ty, tm - 1, td);
+  syncGregToHebrew(todayJs);
+  renderForDate(todayJs);
 
   // Re-tick on each wall-clock minute boundary. setTimeout (rescheduled
   // every tick) instead of setInterval keeps us aligned to the real

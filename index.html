@@ -11,11 +11,6 @@
   <meta name="build-sha" content="__COMMIT_SHA__">
 </head>
 <body>
-  <header class="page-header">
-    <h1>לוח יציאות</h1>
-    <p class="subtitle">Jerusalem Stone Split-Flap Display</p>
-  </header>
-
   <main>
     <section class="display-frame" aria-label="לוח יציאות מתפצל">
       <div id="board" class="board" dir="rtl"></div>
@@ -23,8 +18,14 @@
 
     <section class="controls">
       <div class="control-row">
-        <label for="date-pick">בחר תאריך</label>
+        <label for="date-pick">תאריך לועזי</label>
         <input type="date" id="date-pick" dir="ltr">
+      </div>
+      <div class="control-row">
+        <label>תאריך עברי</label>
+        <select id="heb-day" dir="ltr"></select>
+        <select id="heb-month" dir="rtl"></select>
+        <select id="heb-year" dir="ltr"></select>
       </div>
     </section>
   </main>
