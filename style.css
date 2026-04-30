@@ -255,7 +255,7 @@ main {
 }
 
 .cell.flipping .flap {
-  animation: fold-down 450ms ease-in forwards;
+  animation: fold-down 180ms ease-in forwards;
 }
 
 @keyframes fold-down {

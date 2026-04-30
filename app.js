@@ -6,6 +6,8 @@
   const PUNCTUATION = ' .,!?־׳״';
   const DIGITS = '0123456789';
   const CHAR_SET = (HEBREW_LETTERS + PUNCTUATION + DIGITS).split('');
+  const HEBREW_CHAR_SET = HEBREW_LETTERS.split('');
+  const TIME_CHAR_SET = (DIGITS + ':').split('');
 
   const STAGGER_MS = 120;
   const CYCLE_INTERVAL_MS = 60;
@@ -104,6 +106,7 @@
       const cell = createCell();
       setCellChar(cell, ' ');
       cell._target = ch;
+      cell._charSet = HEBREW_CHAR_SET;
       dateSection.appendChild(cell.el);
       headerDateCells.push(cell);
       allCells.push(cell);
@@ -119,6 +122,7 @@
       const cell = createCell();
       setCellChar(cell, ' ');
       cell._target = ch;
+      cell._charSet = TIME_CHAR_SET;
       timeSection.appendChild(cell.el);
       headerTimeCells.push(cell);
       allCells.push(cell);
@@ -193,7 +197,7 @@
     cell.flapSpan.textContent = char;
   }
 
-  const FLIP_DURATION_MS = 450;
+  const FLIP_DURATION_MS = 180;
 
   function flipCellTo(cell, target) {
     if (cell.current === target) return;
@@ -243,7 +247,8 @@
           cell.timer = null;
           return;
         }
-        const randomChar = CHAR_SET[Math.floor(Math.random() * CHAR_SET.length)];
+        const set = cell._charSet || CHAR_SET;
+        const randomChar = set[Math.floor(Math.random() * set.length)];
         setCellChar(cell, randomChar);
         cyclesLeft -= 1;
         cell.timer = setTimeout(tick, CYCLE_INTERVAL_MS);
@@ -289,6 +294,7 @@
         const cell = createCell();
         setCellChar(cell, ' ');
         cell._target = rowChars[i];
+        cell._charSet = HEBREW_CHAR_SET;
         rowEl.appendChild(cell.el);
         rowCells.push(cell);
       }
@@ -296,6 +302,7 @@
         const cell = createCell();
         setCellChar(cell, ' ');
         cell._target = ' ';
+        cell._charSet = HEBREW_CHAR_SET;
         rowEl.appendChild(cell.el);
         rowCells.push(cell);
       }
