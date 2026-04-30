@@ -334,6 +334,24 @@
     renderMessage(messageInput.value);
   });
 
+  document.getElementById('replay-btn').addEventListener('click', () => {
+    // Reset every cell to blank then re-run the scheduled animation to its target.
+    for (const row of cells) {
+      for (const cell of row) {
+        clearCellTimer(cell);
+        setCellChar(cell, ' ');
+      }
+    }
+    let rowIndex = 0;
+    for (const row of cells) {
+      const rowDelay = rowIndex * STAGGER_MS;
+      for (const cell of row) {
+        scheduleCellAnimation(cell, cell._target || ' ', rowDelay);
+      }
+      rowIndex += 1;
+    }
+  });
+
   messageInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
