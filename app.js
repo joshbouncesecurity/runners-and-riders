@@ -208,12 +208,18 @@
     void cell.el.offsetWidth;
     cell.el.classList.add('flipping');
 
-    const onEnd = () => {
+    let done = false;
+    const commit = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(fallback);
       cell.el.classList.remove('flipping');
-      cell.flap.removeEventListener('animationend', onEnd);
+      cell.flap.removeEventListener('animationend', commit);
       setCellChar(cell, target);
     };
-    cell.flap.addEventListener('animationend', onEnd);
+    // Fallback so the cell always commits even if animationend never fires.
+    const fallback = setTimeout(commit, 520);
+    cell.flap.addEventListener('animationend', commit);
   }
 
   function clearCellTimer(cell) {
@@ -332,24 +338,6 @@
   // ─── Wire up controls ──────────────────────────────────────────
   setBtn.addEventListener('click', () => {
     renderMessage(messageInput.value);
-  });
-
-  document.getElementById('replay-btn').addEventListener('click', () => {
-    // Reset every cell to blank then re-run the scheduled animation to its target.
-    for (const row of cells) {
-      for (const cell of row) {
-        clearCellTimer(cell);
-        setCellChar(cell, ' ');
-      }
-    }
-    let rowIndex = 0;
-    for (const row of cells) {
-      const rowDelay = rowIndex * STAGGER_MS;
-      for (const cell of row) {
-        scheduleCellAnimation(cell, cell._target || ' ', rowDelay);
-      }
-      rowIndex += 1;
-    }
   });
 
   messageInput.addEventListener('keydown', (e) => {
