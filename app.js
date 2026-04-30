@@ -7,10 +7,9 @@
   const DIGITS = '0123456789';
   const CHAR_SET = (HEBREW_LETTERS + PUNCTUATION + DIGITS).split('');
   const HEBREW_CHAR_SET = HEBREW_LETTERS.split('');
-  const TIME_CHAR_SET = (DIGITS + ':').split('');
+  const TIME_CHAR_SET = DIGITS.split('');
 
   const STAGGER_MS = 300;
-  const CYCLE_INTERVAL_MS = 60;
   const MIN_CYCLES = 10;
   const MAX_CYCLES = 22;
   const MAX_COLS = 13;
@@ -188,7 +187,7 @@
     el.appendChild(bottom);
     el.appendChild(flap);
 
-    return { el, topSpan, bottomSpan, flap, flapSpan, current: ' ', timer: null, flipTimer: null };
+    return { el, topSpan, bottomSpan, flap, flapSpan, current: ' ', timer: null, flipTimer: null, _abortCycles: false };
   }
 
   function setCellChar(cell, char) {
@@ -198,42 +197,39 @@
     cell.flapSpan.textContent = char;
   }
 
-  const FLIP_DURATION_MS = 180;
+  const FLIP_DURATION_MS = 80;
 
-  function flipCellTo(cell, target) {
-    if (cell.current === target) return;
-    // Flap keeps the OLD char; new char is pre-loaded on the top half
-    // behind it and revealed as the flap squishes away.
+  function flipCellTo(cell, target, onDone) {
+    if (cell.current === target) { onDone && onDone(); return; }
     cell.topSpan.textContent = target;
-
-    // Reset animation cleanly: remove class, force reflow, re-add.
     cell.el.classList.remove('flipping');
     void cell.el.offsetWidth;
     cell.el.classList.add('flipping');
-
-    // Commit via timer only — animationend is unreliable in some browsers.
     clearTimeout(cell.flipTimer);
     cell.flipTimer = setTimeout(() => {
       cell.el.classList.remove('flipping');
       setCellChar(cell, target);
       cell.flipTimer = null;
+      onDone && onDone();
     }, FLIP_DURATION_MS + 50);
   }
 
   function clearCellTimer(cell) {
+    cell._abortCycles = true;
     if (cell.flipTimer !== null) {
       clearTimeout(cell.flipTimer);
       cell.flipTimer = null;
+      cell.el.classList.remove('flipping');
     }
     if (cell.timer !== null) {
       clearTimeout(cell.timer);
-      clearInterval(cell.timer);
       cell.timer = null;
     }
   }
 
   function scheduleCellAnimation(cell, target, startDelay) {
     clearCellTimer(cell);
+    cell._abortCycles = false;
 
     if (cell._static) {
       cell.timer = setTimeout(() => { setCellChar(cell, target); cell.timer = null; }, startDelay);
@@ -242,22 +238,20 @@
 
     const totalCycles = Math.floor(MIN_CYCLES + Math.random() * (MAX_CYCLES - MIN_CYCLES));
 
-    // Random-cycle phase uses INSTANT char swaps (no flip animation) so cycles
-    // can run faster than the CSS flap animation without overlapping flips
-    // committing stale targets. Only the final landing flip is animated.
     cell.timer = setTimeout(() => {
+      cell.timer = null;
       let cyclesLeft = totalCycles;
+      const set = cell._charSet || CHAR_SET;
+
       const tick = () => {
-        if (cyclesLeft <= 0) {
-          flipCellTo(cell, target);
-          cell.timer = null;
-          return;
-        }
-        const set = cell._charSet || CHAR_SET;
-        const randomChar = set[Math.floor(Math.random() * set.length)];
-        setCellChar(cell, randomChar);
+        if (cell._abortCycles) return;
+        if (cyclesLeft <= 0) { flipCellTo(cell, target); return; }
+        // Pick a char visually different from current so the flip is always visible.
+        let randomChar;
+        do { randomChar = set[Math.floor(Math.random() * set.length)]; }
+        while (randomChar === cell.current && set.length > 1);
         cyclesLeft -= 1;
-        cell.timer = setTimeout(tick, CYCLE_INTERVAL_MS);
+        flipCellTo(cell, randomChar, tick);
       };
       tick();
     }, startDelay);
