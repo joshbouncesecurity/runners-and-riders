@@ -14,6 +14,10 @@
   const MAX_CYCLES = 22;
   const MAX_COLS = 13;
 
+  // ?instant in the URL skips all flip animation — cells show their
+  // final character immediately. Useful for testing liturgical logic.
+  const INSTANT = new URLSearchParams(location.search).has('instant');
+
   const { HDate, HebrewCalendar, flags: HEBCAL_FLAGS } = window.hebcal;
 
   // ─── Liturgical logic (see LITURGY.md) ────────────────────────
@@ -77,24 +81,28 @@
     return { holidayName: '', yaalehVeYavo: !!roshChodesh };
   }
 
-  // Return the parsha name (Hebrew, no niqqud, no prefix) for the Shabbat
-  // of the week containing jsDate. Returns '' on Yom Tov weeks with no
-  // regular portion.
+  // Return the next parsha name (Hebrew, no niqqud, no prefix) on or after
+  // the Shabbat of jsDate's week. If that Shabbat has no regular reading
+  // (Yom Tov / Chol HaMoed), advances week by week until one is found.
   function getParshaForDate(jsDate) {
     const shabbat = new Date(jsDate);
-    const dow = shabbat.getDay(); // 0=Sun … 6=Sat
+    const dow = shabbat.getDay();
     if (dow !== 6) shabbat.setDate(shabbat.getDate() + (6 - dow));
-    const hd = new HDate(shabbat);
-    let events;
-    try {
-      events = HebrewCalendar.calendar({ start: hd, end: hd, sedrot: true, il: true, locale: 'he' });
-    } catch { return ''; }
-    const ev = events.find(e => { try { return e.render('en').startsWith('Parashat'); } catch { return false; } });
-    if (!ev) return '';
-    const title = stripNiqqud((ev.render('he') || ev.render('en')) || '');
-    // Strip "פרשת " (Hebrew) or "Parashat " (English) prefix
-    const bare = title.replace(/^(פרשת|Parashat)\s+/, '');
-    return PARSHA_OVERRIDES[bare] || bare;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const hd = new HDate(shabbat);
+      let events;
+      try {
+        events = HebrewCalendar.calendar({ start: hd, end: hd, sedrot: true, il: true, locale: 'he' });
+      } catch { return ''; }
+      const ev = events.find(e => { try { return e.render('en').startsWith('Parashat'); } catch { return false; } });
+      if (ev) {
+        const title = stripNiqqud((ev.render('he') || ev.render('en')) || '');
+        const bare = title.replace(/^(פרשת|Parashat)\s+/, '');
+        return PARSHA_OVERRIDES[bare] || bare;
+      }
+      shabbat.setDate(shabbat.getDate() + 7);
+    }
+    return '';
   }
 
   // Build the display text for a given JS date. Always 7 rows (padded
@@ -328,6 +336,8 @@
   function scheduleCellAnimation(cell, target, startDelay) {
     clearCellTimer(cell);
     cell._abortCycles = false;
+
+    if (INSTANT) { setCellChar(cell, target); return; }
 
     if (cell._static) {
       cell.timer = setTimeout(() => { setCellChar(cell, target); cell.timer = null; }, startDelay);

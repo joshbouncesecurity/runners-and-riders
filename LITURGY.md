@@ -44,11 +44,13 @@ diaspora reads them together. The `il` flag selects the Israel schedule.
 
 **Edge cases:**
 
-- On Shabbat Chol HaMoed Pesach or Sukkot the regular weekly parsha is
-  displaced by the holiday display (step 2 above fires first).
-- On Shabbat that coincides with a major Yom Tov (e.g. first day of
-  Pesach falling on Shabbat) no regular parsha is read; the holiday name
-  is shown instead (step 3 above fires first).
+- On Shabbat Chol HaMoed or Yom Tov, the holiday display fires first
+  (steps 2–3 above), so the parsha fallback is not reached.
+- On a non-holiday day whose upcoming Shabbat has no regular reading
+  (e.g. mid-week during Chol HaMoed), the parsha algorithm advances
+  week by week (up to 5 attempts) until it finds a Shabbat with a
+  regular parsha. The display always shows the next parsha that will
+  be read, never a blank.
 - The combined parsha `אחרי מות-קדושים` is 15 chars (over the 13-cell
   limit). The `PARSHA_OVERRIDES` map in `app.js` substitutes
   `אחרי מ-קדושים` (13 chars).
