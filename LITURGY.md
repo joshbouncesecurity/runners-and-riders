@@ -28,9 +28,9 @@ diaspora reads them together. The `il` flag selects the Israel schedule.
 
 **Edge cases:**
 
-- On Shabbat Chol HaMoed Pesach or Sukkot the weekly parsha is still
-  read alongside a special Maftir; Hebcal returns the parsha event
-  normally and the display shows it.
+- On Shabbat Chol HaMoed Pesach or Sukkot the regular weekly parsha is
+  displaced by the special holiday reading. Hebcal returns no `Parashat`
+  event for those Shabbatot and the display shows `אין פרשה`.
 - On Shabbat that coincides with a major Yom Tov (e.g. first day of
   Pesach falling on Shabbat) no regular parsha is read. Hebcal returns
   no `Parashat` event and the display shows `אין פרשה`.
