@@ -5,7 +5,23 @@ appears on each row of the board. All rules apply to **Israel** only.
 
 ---
 
-## Row 1 — פרשת השבוע (Weekly Torah Portion)
+## Row 1 — פרשת השבוע / חג (Holiday or Weekly Torah Portion)
+
+Row 1 shows a holiday name when one exists for the selected date, otherwise
+the weekly Torah portion for that Shabbat.
+
+### Holiday display
+
+**Algorithm:**
+
+1. Call `HebrewCalendar.calendar({ start, end, il: true })` for the date.
+2. If any event has the `CHOL_HAMOED` flag → show a fixed Hebrew string:
+   - `חול המועד פסח` or `חול המועד סוכות`
+3. Else if any event has the `CHAG` flag (major Yom Tov) → show
+   `e.render('he')` with niqqud stripped.
+4. If neither → fall through to the parsha logic below.
+
+### Parsha fallback
 
 **Source:** `@hebcal/core` v6 (`HebrewCalendar.calendar` with `il: true`).
 
@@ -29,17 +45,36 @@ diaspora reads them together. The `il` flag selects the Israel schedule.
 **Edge cases:**
 
 - On Shabbat Chol HaMoed Pesach or Sukkot the regular weekly parsha is
-  displaced by the special holiday reading. Hebcal returns no `Parashat`
-  event for those Shabbatot and the display shows `אין פרשה`.
+  displaced by the holiday display (step 2 above fires first).
 - On Shabbat that coincides with a major Yom Tov (e.g. first day of
-  Pesach falling on Shabbat) no regular parsha is read. Hebcal returns
-  no `Parashat` event and the display shows `אין פרשה`.
-- Very long combined-parsha names (e.g. `אחרי מות-קדושים` = 15 chars)
-  are truncated to MAX_COLS (13) by the board engine.
+  Pesach falling on Shabbat) no regular parsha is read; the holiday name
+  is shown instead (step 3 above fires first).
+- The combined parsha `אחרי מות-קדושים` is 15 chars (over the 13-cell
+  limit). The `PARSHA_OVERRIDES` map in `app.js` substitutes
+  `אחרי מ-קדושים` (13 chars).
 
 ---
 
-## Row 2 — תן טל ומטר / תן ברכה
+## Row 2 (conditional) — יעלה ויבוא
+
+**Context:** An insertion in the Amida (ברכת עבודה / רצה) and in Birkat
+HaMazon on days with a special mussaf or holiday character.
+
+**When it is said:**
+
+| Occasion | Flag checked |
+|----------|-------------|
+| All major Yom Tov days | `CHAG` |
+| Chol HaMoed Pesach / Sukkot | `CHOL_HAMOED` |
+| Rosh Chodesh | `ROSH_CHODESH` |
+
+**Display effect:** When יעלה ויבוא is shown it occupies row 2, pushing
+תן טל ומטר and מוריד הגשם to rows 3 and 4. On regular days those rows
+stay at 2 and 3.
+
+---
+
+## Row 2 or 3 — תן טל ומטר / תן ברכה
 
 **Context:** The 9th blessing of the Amida (ברכת השנים). In the summer
 formula the blessing ends "ותן ברכה"; in the winter formula it includes
@@ -82,7 +117,7 @@ handles them automatically (`hMonth >= 9 && hMonth <= 13`).
 
 ---
 
-## Row 3 — מוריד הגשם / מוריד הטל
+## Row 3 or 4 — מוריד הגשם / מוריד הטל
 
 **Context:** The second blessing of the Amida (גבורות / מחיה המתים).
 In winter: "מוריד הגשם" (He who makes rain fall). In summer: "מוריד הטל"

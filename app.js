@@ -14,9 +14,14 @@
   const MAX_CYCLES = 22;
   const MAX_COLS = 13;
 
-  const { HDate, HebrewCalendar } = window.hebcal;
+  const { HDate, HebrewCalendar, flags: HEBCAL_FLAGS } = window.hebcal;
 
   // ─── Liturgical logic (see LITURGY.md) ────────────────────────
+
+  // Custom short forms for names that exceed MAX_COLS (13 cells).
+  const PARSHA_OVERRIDES = {
+    'אחרי מות-קדושים': 'אחרי מ-קדושים',
+  };
 
   // Remove Hebrew niqqud (vowel points + cantillation, U+0591–U+05C7).
   function stripNiqqud(str) {
@@ -39,6 +44,39 @@
     return false;
   }
 
+  // Single Hebcal query for jsDate; returns:
+  //   holidayName — non-empty string to show in row 1 instead of the parsha,
+  //                 or '' on a regular weekday/Shabbat.
+  //   yaalehVeYavo — true when יעלה ויבוא is added to the Amida
+  //                  (Yom Tov, Chol HaMoed, Rosh Chodesh).
+  function getDayInfo(jsDate) {
+    const hd = new HDate(jsDate);
+    let events = [];
+    try { events = HebrewCalendar.calendar({ start: hd, end: hd, il: true }) || []; } catch {}
+
+    const getFlags = e => { try { return e.getFlags(); } catch { return 0; } };
+    const renderEn = e => { try { return e.render('en') || ''; } catch { return ''; } };
+    const renderHe = e => stripNiqqud((() => { try { return e.render('he') || ''; } catch { return ''; } })());
+
+    // Chol HaMoed — fixed Hebrew string + יעלה ויבוא
+    const cholHamoed = events.find(e => !!(getFlags(e) & HEBCAL_FLAGS.CHOL_HAMOED));
+    if (cholHamoed) {
+      const en = renderEn(cholHamoed);
+      const name = /pesach|passover/i.test(en) ? 'חול המועד פסח'
+                 : /sukkot/i.test(en)          ? 'חול המועד סוכות'
+                 : renderHe(cholHamoed);
+      return { holidayName: name, yaalehVeYavo: true };
+    }
+
+    // Major Yom Tov — Hebcal Hebrew rendering + יעלה ויבוא
+    const yomTov = events.find(e => !!(getFlags(e) & HEBCAL_FLAGS.CHAG));
+    if (yomTov) return { holidayName: renderHe(yomTov), yaalehVeYavo: true };
+
+    // Rosh Chodesh — no row-1 override, but יעלה ויבוא is said
+    const roshChodesh = events.find(e => !!(getFlags(e) & HEBCAL_FLAGS.ROSH_CHODESH));
+    return { holidayName: '', yaalehVeYavo: !!roshChodesh };
+  }
+
   // Return the parsha name (Hebrew, no niqqud, no prefix) for the Shabbat
   // of the week containing jsDate. Returns '' on Yom Tov weeks with no
   // regular portion.
@@ -55,19 +93,25 @@
     if (!ev) return '';
     const title = stripNiqqud((ev.render('he') || ev.render('en')) || '');
     // Strip "פרשת " (Hebrew) or "Parashat " (English) prefix
-    return title.replace(/^(פרשת|Parashat)\s+/, '');
+    const bare = title.replace(/^(פרשת|Parashat)\s+/, '');
+    return PARSHA_OVERRIDES[bare] || bare;
   }
 
-  // Build the three-line display text for a given JS date.
-  // Pads to 7 rows with blank lines so the board looks full.
+  // Build the display text for a given JS date. Always 7 rows (padded
+  // with blanks) so the grid stays full. יעלה ויבוא, when present,
+  // occupies row 2 and shifts Tal/Geshem down by one.
   function getDisplayText(jsDate) {
     const hd = new HDate(jsDate);
     const hMonth = hd.getMonth();
     const hDay = hd.getDate();
-    const parshah = getParshaForDate(jsDate) || 'אין פרשה';
-    const line2 = isTalUMatar(hMonth, hDay) ? 'תן טל ומטר' : 'תן ברכה';
-    const line3 = isMoridHaGeshem(hMonth, hDay) ? 'מוריד הגשם' : 'מוריד הטל';
-    return `${parshah}\n${line2}\n${line3}\n\n\n\n`;
+    const { holidayName, yaalehVeYavo } = getDayInfo(jsDate);
+    const row1 = holidayName || getParshaForDate(jsDate);
+    const talRow = isTalUMatar(hMonth, hDay) ? 'תן טל ומטר' : 'תן ברכה';
+    const geshem = isMoridHaGeshem(hMonth, hDay) ? 'מוריד הגשם' : 'מוריד הטל';
+    const rows = yaalehVeYavo
+      ? [row1, 'יעלה ויבוא', talRow, geshem, '', '', '']
+      : [row1, talRow, geshem, '', '', '', ''];
+    return rows.join('\n');
   }
 
   const board = document.getElementById('board');
