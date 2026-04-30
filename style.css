@@ -145,7 +145,7 @@ main {
   aspect-ratio: 3 / 4;
   /* Establish a containment context so descendants can size with cqw/cqi. */
   container-type: inline-size;
-  perspective: 240px;
+  perspective: 120px;
   background: var(--walnut-dark);
   border-radius: 4px;
   box-shadow:
@@ -257,12 +257,13 @@ main {
 }
 
 .cell.flipping .flap {
-  animation: fold-down 220ms ease-in forwards;
+  animation: fold-down 350ms ease-in forwards;
 }
 
 @keyframes fold-down {
-  0%   { transform: rotateX(0deg); }
-  100% { transform: rotateX(-90deg); }
+  0%   { transform: rotateX(0deg);   opacity: 1; }
+  70%  { transform: rotateX(-70deg); opacity: 0.6; }
+  100% { transform: rotateX(-90deg); opacity: 0; }
 }
 
 /* ─── Controls ───────────────────────────────────────────────── */

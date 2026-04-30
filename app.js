@@ -7,10 +7,10 @@
   const DIGITS = '0123456789';
   const CHAR_SET = (HEBREW_LETTERS + PUNCTUATION + DIGITS).split('');
 
-  const STAGGER_MS = 35;
-  const CYCLE_INTERVAL_MS = 70;
-  const MIN_CYCLES = 4;
-  const MAX_CYCLES = 12;
+  const STAGGER_MS = 120;
+  const CYCLE_INTERVAL_MS = 60;
+  const MIN_CYCLES = 6;
+  const MAX_CYCLES = 14;
   const MAX_COLS = 13;
 
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -321,13 +321,12 @@
     });
     const grid = buildGrid(lines);
 
-    let cellIndex = 0;
     for (let r = 0; r < grid.length; r += 1) {
+      const rowDelay = r * STAGGER_MS;
       for (let c = 0; c < grid[r].length; c += 1) {
         const cell = grid[r][c];
         const target = cell._target || ' ';
-        scheduleCellAnimation(cell, target, cellIndex * STAGGER_MS);
-        cellIndex += 1;
+        scheduleCellAnimation(cell, target, rowDelay);
       }
     }
   }
